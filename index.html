@@ -9,7 +9,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="theme-color" content="#0d0d12" />
+    <meta name="theme-color" content="#000000" />
     <title>Finger Chooser</title>
     <style>
       * {
@@ -24,7 +24,7 @@
         height: 100%;
         overflow: hidden;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #0d0d12;
+        background: #000;
         color: #fff;
         touch-action: none;
         user-select: none;
@@ -34,12 +34,12 @@
         inset: 0;
       }
 
-      /* ---- PANEL DE PRESELECTION ---- */
+      /* ---- PANEL DE PRESELECTION (secret) ---- */
       #panel {
         position: fixed;
         inset: 0;
         z-index: 100;
-        background: linear-gradient(135deg, #141428, #1d1d3a);
+        background: radial-gradient(circle at 50% 35%, #16162c, #000 75%);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -47,11 +47,13 @@
         gap: 26px;
       }
       #panel h1 {
-        font-size: 1.5rem;
+        font-size: 1.4rem;
         letter-spacing: 1px;
+        text-align: center;
+        padding: 0 20px;
       }
       #panel p {
-        opacity: 0.65;
+        opacity: 0.6;
         font-size: 0.95rem;
         text-align: center;
         max-width: 320px;
@@ -62,13 +64,14 @@
         gap: 16px;
         flex-wrap: wrap;
         justify-content: center;
+        padding: 0 16px;
       }
       .choice {
         width: 74px;
         height: 74px;
-        border-radius: 18px;
-        border: 2px solid #2e2e55;
-        background: #1a1a33;
+        border-radius: 50%;
+        border: 3px solid #2e2e55;
+        background: #14142a;
         font-size: 1.6rem;
         font-weight: 700;
         color: #fff;
@@ -92,6 +95,7 @@
       .rand {
         width: auto;
         padding: 0 22px;
+        border-radius: 40px;
         font-size: 1rem;
       }
       #go {
@@ -110,14 +114,9 @@
         transform: scale(0.96);
       }
       #go:disabled {
-        background: #444;
-        color: #888;
+        background: #333;
+        color: #777;
         cursor: not-allowed;
-      }
-      .hint {
-        font-size: 0.78rem;
-        opacity: 0.4;
-        margin-top: 6px;
       }
 
       /* ---- ECRAN DE JEU ---- */
@@ -134,15 +133,17 @@
         text-align: center;
         pointer-events: none;
         transition: opacity 0.4s;
+        padding: 0 24px;
       }
       #msg .big {
-        font-size: 1.7rem;
+        font-size: 1.5rem;
         font-weight: 700;
+        opacity: 0.9;
       }
       #msg .sub {
-        font-size: 1rem;
-        opacity: 0.6;
-        margin-top: 8px;
+        font-size: 0.95rem;
+        opacity: 0.45;
+        margin-top: 10px;
       }
       canvas {
         position: absolute;
@@ -154,15 +155,15 @@
     <div id="stage">
       <!-- PANEL CACHE : visible seulement par toi avant de lancer -->
       <div id="panel">
-        <h1>⚙️ Choisissez le nombres de joueurs</h1>
-        <p>Choisissez le nombre de doigt.</p>
+        <h1>⚙️ Choisissez le nombre de joueurs</h1>
+        <p>Choisissez quel doigt gagnera (ordre de pose).</p>
         <div class="choices">
           <button class="choice" data-i="0">1</button>
           <button class="choice" data-i="1">2</button>
           <button class="choice" data-i="2">3</button>
           <button class="choice" data-i="3">4</button>
           <button class="choice" data-i="4">5</button>
-          <button class="choice rand" data-i="-1">Autres</button>
+          <button class="choice rand" data-i="-1">Hasard</button>
         </div>
         <button id="go" disabled>LANCER LE JEU</button>
       </div>
@@ -179,8 +180,8 @@
 
     <script>
       const PALETTE = [
-        "#e94560",
-        "#00bbf9",
+        "#ff2e63",
+        "#08d9d6",
         "#16c79a",
         "#ffd460",
         "#9b5de5",
@@ -191,8 +192,7 @@
         "#48dbfb",
       ];
 
-      let forcedOrder = null; // index (ordre de pose) forcé, -1/null = hasard
-      let started = false;
+      let forcedOrder = null; // index (ordre de pose) forcé, null = hasard
 
       /* ---------- PANEL ---------- */
       const panel = document.getElementById("panel");
@@ -218,11 +218,8 @@
       document.addEventListener("keydown", (e) => {
         const n = parseInt(e.key, 10);
         if (!isNaN(n)) {
-          if (n === 0) {
-            forcedOrder = null;
-          } else {
-            forcedOrder = n - 1;
-          }
+          if (n === 0) forcedOrder = null;
+          else forcedOrder = n - 1;
         }
       });
 
@@ -249,11 +246,12 @@
       let countdownStart = 0;
       const COUNTDOWN = 3000; // ms après la dernière pose avant sélection
       let winnerId = null;
+      let winner = null;
+      let revealR = 0;
       let pulse = 0;
 
-      function colorFor(order) {
-        return PALETTE[order % PALETTE.length];
-      }
+      const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+      const colorFor = (order) => PALETTE[order % PALETTE.length];
 
       canvas.addEventListener(
         "touchstart",
@@ -300,8 +298,8 @@
         if (touches.size === 0) {
           resetRound();
         } else if (phase === "counting") {
-          countdownStart = performance.now();
-        } // relance le compte si on rajuste
+          countdownStart = performance.now(); // relance le compte si on rajuste
+        }
       }
       canvas.addEventListener("touchend", removeTouch, { passive: false });
       canvas.addEventListener("touchcancel", removeTouch, { passive: false });
@@ -309,6 +307,8 @@
       function resetRound() {
         phase = "waiting";
         winnerId = null;
+        winner = null;
+        revealR = 0;
         orderCounter = 0;
         msg.querySelector(".big").textContent = "Posez vos doigts";
         msg.querySelector(".sub").textContent = "Maintenez l'écran…";
@@ -319,101 +319,123 @@
         const arr = [...touches.values()].sort((a, b) => a.order - b.order);
         if (arr.length === 0) return null;
         let chosen;
-        if (
-          forcedOrder !== null &&
-          forcedOrder >= 0 &&
-          forcedOrder < arr.length
-        ) {
+        if (forcedOrder !== null && forcedOrder >= 0 && forcedOrder < arr.length) {
           chosen = arr[forcedOrder]; // doigt truqué selon l'ordre de pose
         } else {
-          chosen = arr[Math.floor(Math.random() * arr.length)]; // vrai hasard (ou index hors limite)
+          chosen = arr[Math.floor(Math.random() * arr.length)]; // vrai hasard
         }
-        // retrouver l'id correspondant
         for (const [id, o] of touches) {
           if (o === chosen) return id;
         }
         return null;
       }
 
-      /* ---------- RENDU ---------- */
+      /* ---------- RENDU (style Chwazi) ---------- */
+      function drawFinger(o, now, progress, ph) {
+        const t = now / 1000;
+        const grow = easeOut(Math.min(1, (now - o.bornAt) / 220));
+        const cx = o.x,
+          cy = o.y;
+        const speed = ph === "counting" ? 2.4 : 1.1;
+
+        ctx.lineCap = "round";
+        ctx.strokeStyle = o.color;
+
+        // anneaux concentriques en rotation
+        const rings = [26, 40, 54];
+        rings.forEach((baseR, idx) => {
+          const rr = baseR * grow;
+          const dir = idx % 2 === 0 ? 1 : -1;
+          const rot = t * speed * dir + o.order * 1.3;
+          const segs = 3;
+          ctx.lineWidth = 4;
+          for (let s = 0; s < segs; s++) {
+            const a0 = rot + (s * Math.PI * 2) / segs;
+            const a1 = a0 + ((Math.PI * 2) / segs) * 0.55;
+            ctx.beginPath();
+            ctx.arc(cx, cy, rr, a0, a1);
+            ctx.stroke();
+          }
+        });
+
+        // anneau de décompte qui se remplit
+        if (ph === "counting") {
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.arc(
+            cx,
+            cy,
+            66 * grow,
+            -Math.PI / 2,
+            -Math.PI / 2 + Math.PI * 2 * progress,
+          );
+          ctx.stroke();
+        }
+
+        // point central
+        ctx.fillStyle = o.color;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 12 * grow, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawWinnerMark(o, now) {
+        const t = now / 1000;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "#ffffff";
+        [30, 50].forEach((rr, idx) => {
+          const dir = idx % 2 === 0 ? 1 : -1;
+          const rot = t * 2 * dir;
+          for (let s = 0; s < 3; s++) {
+            const a0 = rot + (s * Math.PI * 2) / 3;
+            const a1 = a0 + ((Math.PI * 2) / 3) * 0.55;
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.arc(o.x, o.y, rr, a0, a1);
+            ctx.stroke();
+          }
+        });
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, 16, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       function frame(now) {
         ctx.clearRect(0, 0, innerWidth, innerHeight);
-        pulse += 0.08;
+        pulse += 0.05;
 
-        // gestion phase
         if (phase === "counting") {
           const elapsed = now - countdownStart;
           if (elapsed >= COUNTDOWN && touches.size > 0) {
             winnerId = pickWinner();
+            winner = touches.get(winnerId);
+            revealR = 24;
             phase = "done";
-            msg.querySelector(".big").textContent = "🎯 Choisi !";
-            msg.querySelector(".sub").textContent = "Relâchez pour rejouer";
             msg.style.opacity = "0";
           }
         }
 
+        const progress =
+          phase === "counting"
+            ? Math.min(1, (now - countdownStart) / COUNTDOWN)
+            : 0;
+
+        // tous les doigts (le gagnant sera redessiné par-dessus l'inondation)
         for (const [id, o] of touches) {
-          const isWinner = phase === "done" && id === winnerId;
-          const isLoser = phase === "done" && id !== winnerId;
-          const base = 46;
+          if (phase === "done" && id === winnerId) continue;
+          drawFinger(o, now, progress, phase);
+        }
 
-          if (phase === "counting") {
-            // anneaux qui tournent autour de chaque doigt
-            const r = base + 14 + Math.sin(pulse + o.order) * 4;
-            ctx.strokeStyle = o.color;
-            ctx.lineWidth = 5;
-            const seg = Math.PI * 1.3,
-              off = now / 250 + o.order;
-            ctx.beginPath();
-            ctx.arc(o.x, o.y, r, off, off + seg);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(o.x, o.y, r, off + Math.PI, off + Math.PI + seg);
-            ctx.stroke();
-          }
-
-          // disque du doigt
-          let radius = base,
-            alpha = 1;
-          if (isWinner) {
-            radius = base + 18 + Math.sin(pulse * 1.6) * 10;
-          }
-          if (isLoser) {
-            alpha = 0.18;
-            radius = base * 0.8;
-          }
-
-          ctx.globalAlpha = alpha;
-          // halo
-          const g = ctx.createRadialGradient(
-            o.x,
-            o.y,
-            radius * 0.3,
-            o.x,
-            o.y,
-            radius * 1.7,
-          );
-          g.addColorStop(0, o.color);
-          g.addColorStop(1, o.color + "00");
-          ctx.fillStyle = g;
+        // inondation de la couleur du gagnant
+        if (phase === "done" && winner) {
+          const maxR = Math.hypot(innerWidth, innerHeight) + 80;
+          revealR += (maxR - revealR) * 0.12;
+          ctx.fillStyle = winner.color;
           ctx.beginPath();
-          ctx.arc(o.x, o.y, radius * 1.7, 0, Math.PI * 2);
+          ctx.arc(winner.x, winner.y, revealR, 0, Math.PI * 2);
           ctx.fill();
-          // coeur
-          ctx.fillStyle = o.color;
-          ctx.beginPath();
-          ctx.arc(o.x, o.y, radius, 0, Math.PI * 2);
-          ctx.fill();
-          // bord blanc pour le gagnant
-          if (isWinner) {
-            ctx.globalAlpha = 1;
-            ctx.strokeStyle = "#fff";
-            ctx.lineWidth = 6;
-            ctx.beginPath();
-            ctx.arc(o.x, o.y, radius + 8, 0, Math.PI * 2);
-            ctx.stroke();
-          }
-          ctx.globalAlpha = 1;
+          drawWinnerMark(winner, now);
         }
 
         requestAnimationFrame(frame);
