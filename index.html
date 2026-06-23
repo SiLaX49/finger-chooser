@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0d0d12" />
+    <title>Finger Chooser</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0d0d12;
+        color: #fff;
+        touch-action: none;
+        user-select: none;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+      }
+
+      /* ---- PANEL DE PRESELECTION ---- */
+      #panel {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        background: linear-gradient(135deg, #141428, #1d1d3a);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 26px;
+      }
+      #panel h1 {
+        font-size: 1.5rem;
+        letter-spacing: 1px;
+      }
+      #panel p {
+        opacity: 0.65;
+        font-size: 0.95rem;
+        text-align: center;
+        max-width: 320px;
+        line-height: 1.5;
+      }
+      .choices {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .choice {
+        width: 74px;
+        height: 74px;
+        border-radius: 18px;
+        border: 2px solid #2e2e55;
+        background: #1a1a33;
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #fff;
+        cursor: pointer;
+        transition:
+          transform 0.1s,
+          border-color 0.2s,
+          background 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .choice:active {
+        transform: scale(0.93);
+      }
+      .choice.sel {
+        border-color: #16c79a;
+        background: #16c79a22;
+        color: #16c79a;
+      }
+      .rand {
+        width: auto;
+        padding: 0 22px;
+        font-size: 1rem;
+      }
+      #go {
+        margin-top: 8px;
+        padding: 15px 50px;
+        font-size: 1.1rem;
+        font-weight: 700;
+        background: #16c79a;
+        color: #06241c;
+        border: none;
+        border-radius: 30px;
+        cursor: pointer;
+        letter-spacing: 1px;
+      }
+      #go:active {
+        transform: scale(0.96);
+      }
+      #go:disabled {
+        background: #444;
+        color: #888;
+        cursor: not-allowed;
+      }
+      .hint {
+        font-size: 0.78rem;
+        opacity: 0.4;
+        margin-top: 6px;
+      }
+
+      /* ---- ECRAN DE JEU ---- */
+      #game {
+        position: fixed;
+        inset: 0;
+        display: none;
+      }
+      #msg {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        pointer-events: none;
+        transition: opacity 0.4s;
+      }
+      #msg .big {
+        font-size: 1.7rem;
+        font-weight: 700;
+      }
+      #msg .sub {
+        font-size: 1rem;
+        opacity: 0.6;
+        margin-top: 8px;
+      }
+      canvas {
+        position: absolute;
+        inset: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <!-- PANEL CACHE : visible seulement par toi avant de lancer -->
+      <div id="panel">
+        <h1>⚙️ Choisissez le nombres de joueurs</h1>
+        <p>Choisissez le nombre de doigt.</p>
+        <div class="choices">
+          <button class="choice" data-i="0">1</button>
+          <button class="choice" data-i="1">2</button>
+          <button class="choice" data-i="2">3</button>
+          <button class="choice" data-i="3">4</button>
+          <button class="choice" data-i="4">5</button>
+          <button class="choice rand" data-i="-1">Autres</button>
+        </div>
+        <button id="go" disabled>LANCER LE JEU</button>
+      </div>
+
+      <!-- JEU OFFICIEL -->
+      <div id="game">
+        <canvas id="c"></canvas>
+        <div id="msg">
+          <div class="big">Posez vos doigts</div>
+          <div class="sub">Maintenez l'écran…</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const PALETTE = [
+        "#e94560",
+        "#00bbf9",
+        "#16c79a",
+        "#ffd460",
+        "#9b5de5",
+        "#f15bb5",
+        "#fee440",
+        "#ff8a5c",
+        "#4cd137",
+        "#48dbfb",
+      ];
+
+      let forcedOrder = null; // index (ordre de pose) forcé, -1/null = hasard
+      let started = false;
+
+      /* ---------- PANEL ---------- */
+      const panel = document.getElementById("panel");
+      const goBtn = document.getElementById("go");
+      document.querySelectorAll(".choice").forEach((b) => {
+        b.addEventListener("click", () => {
+          document
+            .querySelectorAll(".choice")
+            .forEach((x) => x.classList.remove("sel"));
+          b.classList.add("sel");
+          forcedOrder = parseInt(b.dataset.i, 10);
+          if (forcedOrder < 0) forcedOrder = null;
+          goBtn.disabled = false;
+        });
+      });
+      goBtn.addEventListener("click", () => {
+        panel.style.display = "none";
+        document.getElementById("game").style.display = "block";
+        resize();
+      });
+
+      /* re-réglage discret au clavier pendant le jeu */
+      document.addEventListener("keydown", (e) => {
+        const n = parseInt(e.key, 10);
+        if (!isNaN(n)) {
+          if (n === 0) {
+            forcedOrder = null;
+          } else {
+            forcedOrder = n - 1;
+          }
+        }
+      });
+
+      /* ---------- JEU ---------- */
+      const canvas = document.getElementById("c");
+      const ctx = canvas.getContext("2d");
+      const msg = document.getElementById("msg");
+      let DPR = Math.max(1, window.devicePixelRatio || 1);
+
+      function resize() {
+        DPR = Math.max(1, window.devicePixelRatio || 1);
+        canvas.width = innerWidth * DPR;
+        canvas.height = innerHeight * DPR;
+        canvas.style.width = innerWidth + "px";
+        canvas.style.height = innerHeight + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      }
+      window.addEventListener("resize", resize);
+
+      // touches : Map id -> {x,y,color,bornAt,order}
+      const touches = new Map();
+      let orderCounter = 0;
+      let phase = "waiting"; // waiting | counting | done
+      let countdownStart = 0;
+      const COUNTDOWN = 3000; // ms après la dernière pose avant sélection
+      let winnerId = null;
+      let pulse = 0;
+
+      function colorFor(order) {
+        return PALETTE[order % PALETTE.length];
+      }
+
+      canvas.addEventListener(
+        "touchstart",
+        (e) => {
+          e.preventDefault();
+          for (const t of e.changedTouches) {
+            touches.set(t.identifier, {
+              x: t.clientX,
+              y: t.clientY,
+              order: orderCounter++,
+              color: colorFor(orderCounter - 1),
+              bornAt: performance.now(),
+            });
+          }
+          if (phase !== "done") {
+            phase = "counting";
+            countdownStart = performance.now();
+            msg.style.opacity = "0";
+          }
+        },
+        { passive: false },
+      );
+
+      canvas.addEventListener(
+        "touchmove",
+        (e) => {
+          e.preventDefault();
+          for (const t of e.changedTouches) {
+            const o = touches.get(t.identifier);
+            if (o) {
+              o.x = t.clientX;
+              o.y = t.clientY;
+            }
+          }
+        },
+        { passive: false },
+      );
+
+      function removeTouch(e) {
+        e.preventDefault();
+        for (const t of e.changedTouches) {
+          touches.delete(t.identifier);
+        }
+        if (touches.size === 0) {
+          resetRound();
+        } else if (phase === "counting") {
+          countdownStart = performance.now();
+        } // relance le compte si on rajuste
+      }
+      canvas.addEventListener("touchend", removeTouch, { passive: false });
+      canvas.addEventListener("touchcancel", removeTouch, { passive: false });
+
+      function resetRound() {
+        phase = "waiting";
+        winnerId = null;
+        orderCounter = 0;
+        msg.querySelector(".big").textContent = "Posez vos doigts";
+        msg.querySelector(".sub").textContent = "Maintenez l'écran…";
+        msg.style.opacity = "1";
+      }
+
+      function pickWinner() {
+        const arr = [...touches.values()].sort((a, b) => a.order - b.order);
+        if (arr.length === 0) return null;
+        let chosen;
+        if (
+          forcedOrder !== null &&
+          forcedOrder >= 0 &&
+          forcedOrder < arr.length
+        ) {
+          chosen = arr[forcedOrder]; // doigt truqué selon l'ordre de pose
+        } else {
+          chosen = arr[Math.floor(Math.random() * arr.length)]; // vrai hasard (ou index hors limite)
+        }
+        // retrouver l'id correspondant
+        for (const [id, o] of touches) {
+          if (o === chosen) return id;
+        }
+        return null;
+      }
+
+      /* ---------- RENDU ---------- */
+      function frame(now) {
+        ctx.clearRect(0, 0, innerWidth, innerHeight);
+        pulse += 0.08;
+
+        // gestion phase
+        if (phase === "counting") {
+          const elapsed = now - countdownStart;
+          if (elapsed >= COUNTDOWN && touches.size > 0) {
+            winnerId = pickWinner();
+            phase = "done";
+            msg.querySelector(".big").textContent = "🎯 Choisi !";
+            msg.querySelector(".sub").textContent = "Relâchez pour rejouer";
+            msg.style.opacity = "0";
+          }
+        }
+
+        for (const [id, o] of touches) {
+          const isWinner = phase === "done" && id === winnerId;
+          const isLoser = phase === "done" && id !== winnerId;
+          const base = 46;
+
+          if (phase === "counting") {
+            // anneaux qui tournent autour de chaque doigt
+            const r = base + 14 + Math.sin(pulse + o.order) * 4;
+            ctx.strokeStyle = o.color;
+            ctx.lineWidth = 5;
+            const seg = Math.PI * 1.3,
+              off = now / 250 + o.order;
+            ctx.beginPath();
+            ctx.arc(o.x, o.y, r, off, off + seg);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(o.x, o.y, r, off + Math.PI, off + Math.PI + seg);
+            ctx.stroke();
+          }
+
+          // disque du doigt
+          let radius = base,
+            alpha = 1;
+          if (isWinner) {
+            radius = base + 18 + Math.sin(pulse * 1.6) * 10;
+          }
+          if (isLoser) {
+            alpha = 0.18;
+            radius = base * 0.8;
+          }
+
+          ctx.globalAlpha = alpha;
+          // halo
+          const g = ctx.createRadialGradient(
+            o.x,
+            o.y,
+            radius * 0.3,
+            o.x,
+            o.y,
+            radius * 1.7,
+          );
+          g.addColorStop(0, o.color);
+          g.addColorStop(1, o.color + "00");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(o.x, o.y, radius * 1.7, 0, Math.PI * 2);
+          ctx.fill();
+          // coeur
+          ctx.fillStyle = o.color;
+          ctx.beginPath();
+          ctx.arc(o.x, o.y, radius, 0, Math.PI * 2);
+          ctx.fill();
+          // bord blanc pour le gagnant
+          if (isWinner) {
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = "#fff";
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.arc(o.x, o.y, radius + 8, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+        }
+
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>
